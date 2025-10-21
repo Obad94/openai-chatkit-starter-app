@@ -185,7 +185,12 @@ export default function App() {
   }, [activeSize]);
 
   return (
-    <main className="relative min-h-screen bg-slate-100 dark:bg-slate-950">
+    <main className="relative min-h-screen bg-black">
+      <iframe
+        src="/scramjet-ui/"
+        title="Scramjet browser"
+        className="fixed inset-0 h-full w-full border-0"
+      />
       {isCollapsed ? (
         <button
           type="button"

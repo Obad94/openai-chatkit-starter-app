@@ -17,7 +17,7 @@ This repository is the simplest way to bootstrap a [ChatKit](http://openai.githu
 ### 1. Install dependencies
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### 2. Create your environment file
@@ -47,15 +47,21 @@ Update `.env.local` with the variables that match your setup.
 ### 4. Run the app
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
-Visit `http://localhost:3000` and start chatting. Use the prompts on the start screen to verify your workflow connection, then customize the UI or prompt list in [`lib/config.ts`](lib/config.ts) and [`components/ChatKitPanel.tsx`](components/ChatKitPanel.tsx).
+The unified server starts both the Next.js app and the Scramjet proxy assets on `http://localhost:3000`. The Scramjet demo now loads inside the main page (and registers its service worker) while the ChatKit assistant stays available as a floating panel. Use the prompts on the start screen to verify your workflow connection, then customize the UI or prompt list in [`lib/config.ts`](lib/config.ts) and [`components/ChatKitPanel.tsx`](components/ChatKitPanel.tsx).
 
 ### 5. Deploy your app
 
 ```bash
-npm run build
+pnpm build
+```
+
+Then serve the production build with the combined server:
+
+```bash
+pnpm start
 ```
 
 Before deploying your app, you need to verify the domain by adding it to the [Domain allowlist](https://platform.openai.com/settings/organization/security/domain-allowlist) on your dashboard.

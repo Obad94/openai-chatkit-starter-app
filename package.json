@@ -3,16 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node ./server.mjs --dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node ./server.mjs --prod",
     "lint": "eslint"
   },
   "dependencies": {
+    "@mercuryworkshop/bare-mux": "^2.1.7",
+    "@mercuryworkshop/epoxy-transport": "^2.1.28",
+    "@mercuryworkshop/scramjet": "https://github.com/MercuryWorkshop/scramjet/releases/download/latest/mercuryworkshop-scramjet-2.0.0-alpha.tgz",
+    "@mercuryworkshop/wisp-js": "^0.3.3",
     "@openai/chatkit-react": ">=1.1.1 <2.0.0",
+    "mime-types": "^2.1.35",
     "next": "^15.5.4",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "ws": "^8.18.3"
   },
   "optionalDependencies": {
     "lightningcss-linux-x64-gnu": "1.30.1",
