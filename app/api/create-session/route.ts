@@ -16,6 +16,9 @@ interface CreateSessionRequestBody {
 const DEFAULT_CHATKIT_BASE = "https://api.openai.com";
 const SESSION_COOKIE_NAME = "chatkit_session_id";
 const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const DISABLE_SESSION_COOKIE =
+  process.env.CHATKIT_DISABLE_SESSION_COOKIE === "1" ||
+  process.env.CHATKIT_DISABLE_SESSION_COOKIE === "true";
 const RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 500;
 
@@ -154,6 +157,13 @@ async function resolveUserId(request: Request): Promise<{
   userId: string;
   sessionCookie: string | null;
 }> {
+  if (DISABLE_SESSION_COOKIE) {
+    return {
+      userId: generateSessionId(),
+      sessionCookie: null,
+    };
+  }
+
   const existing = getCookieValue(
     request.headers.get("cookie"),
     SESSION_COOKIE_NAME
@@ -162,15 +172,19 @@ async function resolveUserId(request: Request): Promise<{
     return { userId: existing, sessionCookie: null };
   }
 
-  const generated =
-    typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
+  const generated = generateSessionId();
 
   return {
     userId: generated,
     sessionCookie: serializeSessionCookie(generated),
   };
+}
+
+function generateSessionId(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2);
 }
 
 function getCookieValue(
