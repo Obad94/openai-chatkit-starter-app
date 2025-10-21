@@ -1,4 +1,7 @@
 import { WORKFLOW_ID } from "@/lib/config";
+// Use undici Agent to tune connect/headers/body timeouts for Node fetch
+// without pulling in extra deps (undici is built-in on modern Node).
+import { Agent } from "undici";
 
 export const runtime = "nodejs";
 
@@ -19,8 +22,36 @@ const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 const DISABLE_SESSION_COOKIE =
   process.env.CHATKIT_DISABLE_SESSION_COOKIE === "1" ||
   process.env.CHATKIT_DISABLE_SESSION_COOKIE === "true";
-const RETRY_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 500;
+const RETRY_ATTEMPTS = Number.parseInt(
+  process.env.CHATKIT_RETRY_ATTEMPTS ?? "4",
+  10
+);
+const RETRY_BASE_DELAY_MS = Number.parseInt(
+  process.env.CHATKIT_RETRY_BASE_DELAY_MS ?? "500",
+  10
+);
+
+const CONNECT_TIMEOUT_MS = Number.parseInt(
+  process.env.CHATKIT_CONNECT_TIMEOUT_MS ?? "7000",
+  10
+);
+const HEADERS_TIMEOUT_MS = Number.parseInt(
+  process.env.CHATKIT_HEADERS_TIMEOUT_MS ?? "30000",
+  10
+);
+const BODY_TIMEOUT_MS = Number.parseInt(
+  process.env.CHATKIT_BODY_TIMEOUT_MS ?? "60000",
+  10
+);
+
+const dispatcher = new Agent({
+  // Shorter connect timeout encourages quicker failover to next retry/IP
+  connect: { timeout: CONNECT_TIMEOUT_MS },
+  headersTimeout: HEADERS_TIMEOUT_MS,
+  bodyTimeout: BODY_TIMEOUT_MS,
+  keepAliveTimeout: 10_000,
+  keepAliveMaxTimeout: 60_000,
+});
 
 export async function POST(request: Request): Promise<Response> {
   if (request.method !== "POST") {
@@ -84,7 +115,9 @@ export async function POST(request: Request): Promise<Response> {
         "OpenAI-Beta": "chatkit_beta=v1",
       },
       body: requestBody,
-    });
+      // Pass tuned dispatcher to Node fetch (undici)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
 
     if (process.env.NODE_ENV !== "production") {
       console.info("[create-session] upstream response", {
@@ -267,10 +300,11 @@ async function fetchWithRetry(
   while (attempt < attempts) {
     attempt += 1;
     try {
-      const response = await fetch(url, init);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response = await fetch(url, { ...(init as any), dispatcher } as any);
       if (!response.ok && shouldRetryStatus(response.status) && attempt < attempts) {
         await drainResponse(response);
-        await wait(getBackoffDelay(attempt));
+        await wait(getBackoffDelayWithJitter(attempt));
         continue;
       }
       return response;
@@ -285,7 +319,7 @@ async function fetchWithRetry(
           error,
         });
       }
-      await wait(getBackoffDelay(attempt));
+      await wait(getBackoffDelayWithJitter(attempt));
     }
   }
 
@@ -330,6 +364,13 @@ function isRetriableFetchError(error: unknown): boolean {
 
 function getBackoffDelay(attempt: number): number {
   return RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+}
+
+function getBackoffDelayWithJitter(attempt: number): number {
+  const base = getBackoffDelay(attempt);
+  // Full jitter: multiply by random in [0.7, 1.3]
+  const jitter = 0.7 + Math.random() * 0.6;
+  return Math.max(100, Math.floor(base * jitter));
 }
 
 async function wait(ms: number): Promise<void> {
