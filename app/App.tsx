@@ -131,6 +131,43 @@ export default function App() {
     setIsFullscreen((current) => !current);
   }, []);
 
+  const devReset = useCallback(async () => {
+    try {
+      await fetch("/api/clear-session", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    try {
+      if ("serviceWorker" in navigator && navigator.serviceWorker.getRegistrations) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs
+            .filter((r) => {
+              const scope = r.scope || "";
+              return scope.includes("/scramjet/") || scope.endsWith("/scramjet");
+            })
+            .map((r) => r.unregister().catch(() => undefined))
+        );
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch {
+      // ignore
+    }
+
+    // Small delay to let unregisters settle
+    setTimeout(() => {
+      window.location.reload();
+    }, 50);
+  }, []);
+
   const cycleSize = useCallback(() => {
     setIsCollapsed(false);
     setIsFullscreen(false);
@@ -221,7 +258,7 @@ export default function App() {
       <button
         type="button"
         onClick={() => setIsCollapsed(false)}
-        className="pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white sm:bottom-6 sm:right-6"
+    className="pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white sm:bottom-6 sm:right-6"
         aria-label="Open assistant"
         hidden={!isCollapsed}
       >
@@ -271,6 +308,11 @@ export default function App() {
               <HeaderIconButton label={`Size: ${sizeLabel}`} onClick={cycleSize}>
                 <IconResize />
               </HeaderIconButton>
+              {process.env.NODE_ENV !== "production" && (
+                <HeaderIconButton label="Reset app (dev)" onClick={devReset}>
+                  <IconReset />
+                </HeaderIconButton>
+              )}
               <HeaderIconButton
                 label={isFullscreen ? "Exit full screen" : "Enter full screen"}
                 onClick={toggleFullscreen}
@@ -342,7 +384,7 @@ function HeaderIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-200/80 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:text-slate-200 dark:hover:bg-slate-700/70 dark:hover:text-white"
+  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 transition hover:bg-slate-200/80 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:text-slate-200 dark:hover:bg-slate-700/70 dark:hover:text-white"
       title={label}
       aria-label={label}
     >
@@ -440,6 +482,24 @@ function IconResize() {
       <path d="M6 10v8" />
       <path d="m6 6 4 4" />
       <path d="m14 14 4 4" />
+    </svg>
+  );
+}
+
+function IconReset() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 3v6h6" />
     </svg>
   );
 }

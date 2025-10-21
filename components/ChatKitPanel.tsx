@@ -156,17 +156,28 @@ export function ChatKitPanel({
   }, [isWorkflowConfigured, setErrorState]);
 
   const handleResetChat = useCallback(() => {
-    processedFacts.current.clear();
-    sessionCacheRef.current = null;
-    pendingSessionRef.current = null;
-    if (isBrowser) {
-      setScriptStatus(
-        window.customElements?.get("openai-chatkit") ? "ready" : "pending"
-      );
-    }
-    setIsInitializingSession(true);
-    setErrors(createInitialErrors());
-    setWidgetInstanceKey((prev) => prev + 1);
+    const run = async () => {
+      // Best-effort: ask server to clear the HttpOnly session cookie so a fresh
+      // user id is generated on next session.
+      try {
+        await fetch("/api/clear-session", { method: "POST" });
+      } catch {
+        // ignore
+      }
+
+      processedFacts.current.clear();
+      sessionCacheRef.current = null;
+      pendingSessionRef.current = null;
+      if (isBrowser) {
+        setScriptStatus(
+          window.customElements?.get("openai-chatkit") ? "ready" : "pending"
+        );
+      }
+      setIsInitializingSession(true);
+      setErrors(createInitialErrors());
+      setWidgetInstanceKey((prev) => prev + 1);
+    };
+    void run();
   }, []);
 
   const getClientSecret = useCallback(
