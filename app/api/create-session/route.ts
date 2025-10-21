@@ -1,6 +1,6 @@
 import { WORKFLOW_ID } from "@/lib/config";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 interface CreateSessionRequestBody {
   workflow?: { id?: string | null } | null;
@@ -16,6 +16,8 @@ interface CreateSessionRequestBody {
 const DEFAULT_CHATKIT_BASE = "https://api.openai.com";
 const SESSION_COOKIE_NAME = "chatkit_session_id";
 const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
 
 export async function POST(request: Request): Promise<Response> {
   if (request.method !== "POST") {
@@ -61,23 +63,24 @@ export async function POST(request: Request): Promise<Response> {
 
     const apiBase = process.env.CHATKIT_API_BASE ?? DEFAULT_CHATKIT_BASE;
     const url = `${apiBase}/v1/chatkit/sessions`;
-    const upstreamResponse = await fetch(url, {
+    const requestBody = JSON.stringify({
+      workflow: { id: resolvedWorkflowId },
+      user: userId,
+      chatkit_configuration: {
+        file_upload: {
+          enabled:
+            parsedBody?.chatkit_configuration?.file_upload?.enabled ?? false,
+        },
+      },
+    });
+    const upstreamResponse = await fetchWithRetry(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${openaiApiKey}`,
         "OpenAI-Beta": "chatkit_beta=v1",
       },
-      body: JSON.stringify({
-        workflow: { id: resolvedWorkflowId },
-        user: userId,
-        chatkit_configuration: {
-          file_upload: {
-            enabled:
-              parsedBody?.chatkit_configuration?.file_upload?.enabled ?? false,
-          },
-        },
-      }),
+      body: requestBody,
     });
 
     if (process.env.NODE_ENV !== "production") {
@@ -126,9 +129,10 @@ export async function POST(request: Request): Promise<Response> {
     );
   } catch (error) {
     console.error("Create session error", error);
+    const { status, message } = normalizeFetchError(error);
     return buildJsonResponse(
-      { error: "Unexpected error" },
-      500,
+      { error: message },
+      status,
       { "Content-Type": "application/json" },
       sessionCookie
     );
@@ -221,6 +225,118 @@ function buildJsonResponse(
     status,
     headers: responseHeaders,
   });
+}
+
+function normalizeFetchError(error: unknown): { status: number; message: string } {
+  if (isRetriableFetchError(error)) {
+    return {
+      status: 504,
+      message: "Timed out contacting OpenAI ChatKit. Please try again.",
+    };
+  }
+
+  if (error instanceof Error && error.message) {
+    return { status: 500, message: error.message };
+  }
+
+  return { status: 500, message: "Unexpected error" };
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  attempts: number = RETRY_ATTEMPTS
+): Promise<Response> {
+  let attempt = 0;
+  let lastError: unknown;
+
+  while (attempt < attempts) {
+    attempt += 1;
+    try {
+      const response = await fetch(url, init);
+      if (!response.ok && shouldRetryStatus(response.status) && attempt < attempts) {
+        await drainResponse(response);
+        await wait(getBackoffDelay(attempt));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (!isRetriableFetchError(error) || attempt >= attempts) {
+        throw error;
+      }
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[create-session] retrying upstream request", {
+          attempt,
+          error,
+        });
+      }
+      await wait(getBackoffDelay(attempt));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Failed to reach OpenAI ChatKit.");
+}
+
+function shouldRetryStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function isRetriableFetchError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  if (error instanceof TypeError) {
+    return true;
+  }
+
+  if (
+    error instanceof Error &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    String((error as { code?: unknown }).code).includes("TIMEOUT")
+  ) {
+    return true;
+  }
+
+  const cause = (error as { cause?: unknown }).cause;
+  if (
+    cause &&
+    typeof cause === "object" &&
+    typeof (cause as { code?: unknown }).code === "string" &&
+    String((cause as { code?: unknown }).code).includes("TIMEOUT")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getBackoffDelay(attempt: number): number {
+  return RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function drainResponse(response: Response): Promise<void> {
+  if (response.body) {
+    try {
+      await response.body.cancel();
+      return;
+    } catch {
+      // fall back to consuming the stream below
+    }
+  }
+
+  try {
+    await response.arrayBuffer();
+  } catch {
+    // ignore
+  }
 }
 
 async function safeParseJson<T>(req: Request): Promise<T | null> {

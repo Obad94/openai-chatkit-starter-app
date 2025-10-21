@@ -70,6 +70,33 @@ export default function App() {
     if (typeof window === "undefined") {
       return;
     }
+
+    if (!("serviceWorker" in navigator) || !navigator.serviceWorker.getRegistrations) {
+      return;
+    }
+
+    const rootScope = `${window.location.origin}/`;
+
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) =>
+        Promise.all(
+          registrations
+            .filter((registration) => registration.scope === rootScope)
+            .map((registration) => registration.unregister().catch(() => undefined))
+        )
+      )
+      .catch((error) => {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("Failed to cleanup legacy service worker", error);
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
     if (!isFullscreen) {
       return;
     }
@@ -187,90 +214,86 @@ export default function App() {
   return (
     <main className="relative min-h-screen bg-black">
       <iframe
-        src="/scramjet-ui/"
+        src="/scramjet/"
         title="Scramjet browser"
         className="fixed inset-0 h-full w-full border-0"
       />
-      {isCollapsed ? (
-        <button
-          type="button"
-          onClick={() => setIsCollapsed(false)}
-          className="pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white sm:bottom-6 sm:right-6"
+      <button
+        type="button"
+        onClick={() => setIsCollapsed(false)}
+        className="pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white sm:bottom-6 sm:right-6"
+        hidden={!isCollapsed}
+      >
+        <IconChatBubble />
+        Open assistant
+      </button>
+      {isFullscreen && !isCollapsed && (
+        <div className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm" />
+      )}
+      <div
+        ref={containerRef}
+        hidden={isCollapsed}
+        className={
+          isFullscreen
+            ? "pointer-events-auto fixed inset-0 z-50 flex items-center justify-center"
+            : "pointer-events-auto fixed bottom-4 left-4 right-4 z-50 flex justify-end sm:bottom-6 sm:left-auto sm:right-6"
+        }
+      >
+        <div
+          className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl transition dark:border-slate-800 dark:bg-slate-900 ${
+            isFullscreen ? "sm:rounded-none sm:border-0 sm:shadow-none" : ""
+          }`}
+          style={panelStyle}
         >
-          <IconChatBubble />
-          Open assistant
-        </button>
-      ) : (
-        <>
-          {isFullscreen && (
-            <div className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm" />
-          )}
-          <div
-            ref={containerRef}
-            className={
-              isFullscreen
-                ? "pointer-events-auto fixed inset-0 z-50 flex items-center justify-center"
-                : "pointer-events-auto fixed bottom-4 left-4 right-4 z-50 flex justify-end sm:bottom-6 sm:left-auto sm:right-6"
-            }
-          >
+          {!isFullscreen && (
             <div
-              className={`flex h-full w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl transition dark:border-slate-800 dark:bg-slate-900 ${
-                isFullscreen ? "sm:rounded-none sm:border-0 sm:shadow-none" : ""
-              }`}
-              style={panelStyle}
+              role="presentation"
+              className="group flex h-3 cursor-row-resize items-center justify-center bg-transparent"
+              onPointerDown={handleResizePointerDown}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={stopResizing}
+              onPointerCancel={stopResizing}
             >
-              {!isFullscreen && (
-                <div
-                  role="presentation"
-                  className="group flex h-3 cursor-row-resize items-center justify-center bg-transparent"
-                  onPointerDown={handleResizePointerDown}
-                  onPointerMove={handleResizePointerMove}
-                  onPointerUp={stopResizing}
-                  onPointerCancel={stopResizing}
-                >
-                  <span className={`h-1 w-12 rounded-full bg-slate-300 transition group-hover:bg-slate-400 dark:bg-slate-700 dark:group-hover:bg-slate-600 ${
-                    isResizing ? "bg-slate-400 dark:bg-slate-500" : ""
-                  }`} />
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100">
-                <div className="flex items-center gap-2">
-                  <IconChatBubble className="h-4 w-4" />
-                  <span className="text-sm font-semibold">Assistant</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <HeaderIconButton
-                    label={`Size: ${sizeLabel}`}
-                    onClick={cycleSize}
-                  >
-                    <IconResize />
-                  </HeaderIconButton>
-                  <HeaderIconButton
-                    label={isFullscreen ? "Exit full screen" : "Enter full screen"}
-                    onClick={toggleFullscreen}
-                  >
-                    {isFullscreen ? <IconExitFull /> : <IconFull />}
-                  </HeaderIconButton>
-                  <HeaderIconButton
-                    label="Collapse assistant"
-                    onClick={toggleCollapse}
-                  >
-                    <IconMinimize />
-                  </HeaderIconButton>
-                </div>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <ChatKitPanel
-                  theme={scheme}
-                  onWidgetAction={handleWidgetAction}
-                  onResponseEnd={handleResponseEnd}
-                  onThemeRequest={setScheme}
-                />
-              </div>
+              <span
+                className={`h-1 w-12 rounded-full bg-slate-300 transition group-hover:bg-slate-400 dark:bg-slate-700 dark:group-hover:bg-slate-600 ${
+                  isResizing ? "bg-slate-400 dark:bg-slate-500" : ""
+                }`}
+              />
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-100">
+            <div className="flex items-center gap-2">
+              <IconChatBubble className="h-4 w-4" />
+              <span className="text-sm font-semibold">Assistant</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <HeaderIconButton label={`Size: ${sizeLabel}`} onClick={cycleSize}>
+                <IconResize />
+              </HeaderIconButton>
+              <HeaderIconButton
+                label={isFullscreen ? "Exit full screen" : "Enter full screen"}
+                onClick={toggleFullscreen}
+              >
+                {isFullscreen ? <IconExitFull /> : <IconFull />}
+              </HeaderIconButton>
+              <HeaderIconButton
+                label="Collapse assistant"
+                onClick={toggleCollapse}
+              >
+                <IconMinimize />
+              </HeaderIconButton>
             </div>
           </div>
-        </>
-      )}
+          <div className="flex-1 overflow-hidden">
+            <ChatKitPanel
+              theme={scheme}
+              onWidgetAction={handleWidgetAction}
+              onResponseEnd={handleResponseEnd}
+              onThemeRequest={setScheme}
+            />
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

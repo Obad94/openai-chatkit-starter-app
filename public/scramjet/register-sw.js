@@ -1,5 +1,6 @@
 "use strict";
-const stockSW = "/sw.js";
+const stockSW = "/scramjet/sw.js";
+const scramjetScope = "/scramjet/";
 
 /**
  * List of hostnames that are allowed to run serviceworkers on http://
@@ -20,6 +21,22 @@ window.registerSW = async function registerSW() {
 
     throw new Error("Your browser doesn't support service workers.");
   }
+  const origin = `${location.origin}/`;
 
-  await navigator.serviceWorker.register(stockSW, { scope: "/" });
+  if (navigator.serviceWorker.getRegistrations) {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(
+        registrations
+          .filter((registration) => registration.scope === origin)
+          .map((registration) => registration.unregister())
+      );
+    } catch (error) {
+      console.warn("Failed cleaning up legacy service workers", error);
+    }
+  }
+
+  await navigator.serviceWorker.register(stockSW, {
+    scope: scramjetScope,
+  });
 };

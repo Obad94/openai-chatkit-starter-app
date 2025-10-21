@@ -33,6 +33,14 @@ type ErrorState = {
   retryable: boolean;
 };
 
+type SessionCache = {
+  secret: string;
+  expiresAt: number;
+};
+
+const SESSION_CACHE_BUFFER_MS = 60_000;
+const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
+
 const isBrowser = typeof window !== "undefined";
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -50,6 +58,8 @@ export function ChatKitPanel({
   onThemeRequest,
 }: ChatKitPanelProps) {
   const processedFacts = useRef(new Set<string>());
+  const sessionCacheRef = useRef<SessionCache | null>(null);
+  const pendingSessionRef = useRef<Promise<string> | null>(null);
   const [errors, setErrors] = useState<ErrorState>(() => createInitialErrors());
   const [isInitializingSession, setIsInitializingSession] = useState(true);
   const isMountedRef = useRef(true);
@@ -147,6 +157,8 @@ export function ChatKitPanel({
 
   const handleResetChat = useCallback(() => {
     processedFacts.current.clear();
+    sessionCacheRef.current = null;
+    pendingSessionRef.current = null;
     if (isBrowser) {
       setScriptStatus(
         window.customElements?.get("openai-chatkit") ? "ready" : "pending"
@@ -177,86 +189,135 @@ export function ChatKitPanel({
         throw new Error(detail);
       }
 
-      if (isMountedRef.current) {
-        if (!currentSecret) {
+      const now = Date.now();
+
+      if (currentSecret) {
+        sessionCacheRef.current = {
+          secret: currentSecret,
+          expiresAt:
+            sessionCacheRef.current?.secret === currentSecret
+              ? sessionCacheRef.current.expiresAt
+              : now + DEFAULT_SESSION_TTL_MS,
+        };
+
+        if (isMountedRef.current) {
+          setErrorState({ session: null, integration: null, retryable: false });
+          setIsInitializingSession(false);
+        }
+        return currentSecret;
+      }
+
+      const cached = sessionCacheRef.current;
+      if (cached && cached.expiresAt - now > SESSION_CACHE_BUFFER_MS) {
+        if (isMountedRef.current) {
+          setErrorState({ session: null, integration: null, retryable: false });
+          setIsInitializingSession(false);
+        }
+        return cached.secret;
+      }
+
+      if (pendingSessionRef.current) {
+        if (isMountedRef.current) {
           setIsInitializingSession(true);
         }
+        return pendingSessionRef.current;
+      }
+
+      if (isMountedRef.current) {
+        setIsInitializingSession(true);
         setErrorState({ session: null, integration: null, retryable: false });
       }
 
-      try {
-        const response = await fetch(CREATE_SESSION_ENDPOINT, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            workflow: { id: WORKFLOW_ID },
-            chatkit_configuration: {
-              // enable attachments
-              file_upload: {
-                enabled: true,
-              },
+      const requestPromise = (async () => {
+        try {
+          const response = await fetch(CREATE_SESSION_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
             },
-          }),
-        });
-
-        const raw = await response.text();
-
-        if (isDev) {
-          console.info("[ChatKitPanel] createSession response", {
-            status: response.status,
-            ok: response.ok,
-            bodyPreview: raw.slice(0, 1600),
+            body: JSON.stringify({
+              workflow: { id: WORKFLOW_ID },
+              chatkit_configuration: {
+                file_upload: {
+                  enabled: true,
+                },
+              },
+            }),
           });
-        }
 
-        let data: Record<string, unknown> = {};
-        if (raw) {
-          try {
-            data = JSON.parse(raw) as Record<string, unknown>;
-          } catch (parseError) {
-            console.error(
-              "Failed to parse create-session response",
-              parseError
-            );
+          const raw = await response.text();
+
+          if (isDev) {
+            console.info("[ChatKitPanel] createSession response", {
+              status: response.status,
+              ok: response.ok,
+              bodyPreview: raw.slice(0, 1600),
+            });
+          }
+
+          let data: Record<string, unknown> = {};
+          if (raw) {
+            try {
+              data = JSON.parse(raw) as Record<string, unknown>;
+            } catch (parseError) {
+              console.error(
+                "Failed to parse create-session response",
+                parseError
+              );
+            }
+          }
+
+          if (!response.ok) {
+            const detail = extractErrorDetail(data, response.statusText);
+            console.error("Create session request failed", {
+              status: response.status,
+              body: data,
+            });
+            throw new Error(detail);
+          }
+
+          const clientSecret = data?.client_secret as string | undefined;
+          if (!clientSecret) {
+            throw new Error("Missing client secret in response");
+          }
+
+          const expiresAt = resolveSessionExpiry(data?.expires_after);
+          sessionCacheRef.current = {
+            secret: clientSecret,
+            expiresAt,
+          };
+
+          if (isMountedRef.current) {
+            setErrorState({ session: null, integration: null, retryable: false });
+          }
+
+          return clientSecret;
+        } catch (error) {
+          console.error("Failed to create ChatKit session", error);
+          const detail =
+            error instanceof Error
+              ? error.message
+              : "Unable to start ChatKit session.";
+          if (isMountedRef.current) {
+            setErrorState({
+              session: detail,
+              retryable: isLikelyTransientError(error, detail),
+            });
+          }
+          throw error instanceof Error ? error : new Error(detail);
+        } finally {
+          if (isMountedRef.current) {
+            setIsInitializingSession(false);
           }
         }
+      })();
 
-        if (!response.ok) {
-          const detail = extractErrorDetail(data, response.statusText);
-          console.error("Create session request failed", {
-            status: response.status,
-            body: data,
-          });
-          throw new Error(detail);
-        }
+      const trackedPromise = requestPromise.finally(() => {
+        pendingSessionRef.current = null;
+      });
 
-        const clientSecret = data?.client_secret as string | undefined;
-        if (!clientSecret) {
-          throw new Error("Missing client secret in response");
-        }
-
-        if (isMountedRef.current) {
-          setErrorState({ session: null, integration: null });
-        }
-
-        return clientSecret;
-      } catch (error) {
-        console.error("Failed to create ChatKit session", error);
-        const detail =
-          error instanceof Error
-            ? error.message
-            : "Unable to start ChatKit session.";
-        if (isMountedRef.current) {
-          setErrorState({ session: detail, retryable: false });
-        }
-        throw error instanceof Error ? error : new Error(detail);
-      } finally {
-        if (isMountedRef.current && !currentSecret) {
-          setIsInitializingSession(false);
-        }
-      }
+      pendingSessionRef.current = trackedPromise;
+      return trackedPromise;
     },
     [isWorkflowConfigured, setErrorState]
   );
@@ -365,6 +426,49 @@ export function ChatKitPanel({
         retryLabel="Restart chat"
       />
     </div>
+  );
+}
+
+function resolveSessionExpiry(raw: unknown): number {
+  const now = Date.now();
+  if (typeof raw === "number") {
+    if (raw > 1_000_000_000_000) {
+      return raw;
+    }
+    return now + raw * 1000;
+  }
+
+  if (typeof raw === "string") {
+    const parsed = Date.parse(raw);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return now + DEFAULT_SESSION_TTL_MS;
+}
+
+function isLikelyTransientError(error: unknown, detail: string): boolean {
+  if (error && typeof error === "object") {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && code.includes("TIMEOUT")) {
+      return true;
+    }
+    const cause = (error as { cause?: unknown }).cause;
+    if (cause && typeof cause === "object") {
+      const nestedCode = (cause as { code?: unknown }).code;
+      if (typeof nestedCode === "string" && nestedCode.includes("TIMEOUT")) {
+        return true;
+      }
+    }
+  }
+
+  const lowered = detail.toLowerCase();
+  return (
+    lowered.includes("timeout") ||
+    lowered.includes("temporary") ||
+    lowered.includes("fetch failed") ||
+    lowered.includes("network")
   );
 }
 

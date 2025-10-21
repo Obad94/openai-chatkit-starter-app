@@ -30,7 +30,6 @@ Object.assign(wisp.options, {
 const rootDir = resolve(fileURLToPath(new URL("./", import.meta.url)));
 const publicDir = join(rootDir, "public");
 const SCRAMJET_PROXY_PREFIX = "/scramjet/";
-const SCRAMJET_UI_PREFIX = "/scramjet-ui/";
 const scramjetUiDir = join(publicDir, "scramjet");
 
 const nextApp = next({ dev, dir: rootDir });
@@ -44,24 +43,6 @@ const server = createServer(async (req, res) => {
   const pathname = parsedUrl.pathname ?? "/";
 
   try {
-    if (pathname === "/scramjet-ui") {
-      res.statusCode = 308;
-      res.setHeader("Location", SCRAMJET_UI_PREFIX);
-      res.end();
-      return;
-    }
-
-    if (pathname === SCRAMJET_UI_PREFIX) {
-      await serveScramjetUi(res, "index.html");
-      return;
-    }
-
-    if (pathname.startsWith(SCRAMJET_UI_PREFIX)) {
-      const relativePath = pathname.slice(SCRAMJET_UI_PREFIX.length);
-      await serveScramjetUi(res, relativePath);
-      return;
-    }
-
     if (pathname === "/scramjet") {
       res.statusCode = 308;
       res.setHeader("Location", SCRAMJET_PROXY_PREFIX);
@@ -70,19 +51,16 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname.startsWith(SCRAMJET_PROXY_PREFIX)) {
-      await serveProxyResource(res);
+      const relativePath = pathname.slice(SCRAMJET_PROXY_PREFIX.length);
+      if (await serveScramjetUi(res, relativePath)) {
+        return;
+      }
+      await serveProxyResource(res, relativePath);
       return;
     }
 
-    if (pathname === "/sw.js") {
-      setCrossOriginIsolation(res);
-      res.setHeader("Service-Worker-Allowed", "/");
-      if (await serveStatic(res, scramjetUiDir, "sw.js")) {
-        return;
-      }
-    }
-
     if (pathname.startsWith("/scram/")) {
+      setCrossOriginIsolation(res);
       const relativePath = pathname.slice("/scram/".length);
       if (await serveStatic(res, scramjetPath, relativePath)) {
         return;
@@ -90,6 +68,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname.startsWith("/epoxy/")) {
+      setCrossOriginIsolation(res);
       const relativePath = pathname.slice("/epoxy/".length);
       if (await serveStatic(res, epoxyPath, relativePath)) {
         return;
@@ -97,6 +76,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (pathname.startsWith("/baremux/")) {
+      setCrossOriginIsolation(res);
       const relativePath = pathname.slice("/baremux/".length);
       if (await serveStatic(res, baremuxPath, relativePath)) {
         return;
@@ -136,20 +116,25 @@ server.listen(port, host, () => {
 
 async function serveScramjetUi(res, relativePath) {
   setCrossOriginIsolation(res);
-  res.setHeader("Service-Worker-Allowed", "/");
-  const served = await serveStatic(res, scramjetUiDir, relativePath || "index.html");
-  if (!served) {
-    res.statusCode = 404;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("Not Found");
+  const normalized = relativePath?.length ? relativePath : "index.html";
+  const headers = {};
+
+  if (normalized === "sw.js") {
+    headers["Service-Worker-Allowed"] = "/scramjet/";
   }
+
+  if (normalized === "index.html" || normalized.endsWith(".html")) {
+    headers["Cache-Control"] = dev ? "no-store" : "public, max-age=120";
+  }
+
+  return serveStatic(res, scramjetUiDir, normalized, { headers });
 }
 
-async function serveProxyResource(res) {
+async function serveProxyResource(res, relativePath) {
   setCrossOriginIsolation(res);
   res.statusCode = 404;
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.end("Not Found");
+  res.end(`Scramjet resource not found: ${relativePath ?? ""}`);
 }
 
 function setCrossOriginIsolation(res) {
@@ -157,7 +142,8 @@ function setCrossOriginIsolation(res) {
   res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
 }
 
-async function serveStatic(res, baseDir, requestPath) {
+async function serveStatic(res, baseDir, requestPath, options = {}) {
+  const { headers = {} } = options;
   const sanitized = sanitizePath(requestPath);
   if (sanitized == null) {
     return false;
@@ -179,7 +165,13 @@ async function serveStatic(res, baseDir, requestPath) {
     const contentType = mime.lookup(targetPath) || "application/octet-stream";
     res.statusCode = 200;
     res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", dev ? "no-store" : "public, max-age=86400");
+    if (!("Cache-Control" in headers)) {
+      res.setHeader("Cache-Control", dev ? "no-store" : "public, max-age=86400");
+    }
+
+    for (const [key, value] of Object.entries(headers)) {
+      res.setHeader(key, value);
+    }
     await new Promise((resolveStream, rejectStream) => {
       stream.on("error", rejectStream);
       stream.on("end", resolveStream);
