@@ -26,6 +26,11 @@ function withIsolationHeaders(response) {
 }
 
 async function handleRequest(event) {
+  const url = new URL(event.request.url);
+  if (url.pathname === '/scramjet/' || url.pathname === '/scramjet') {
+    return withIsolationHeaders(await fetch(event.request));
+  }
+
   await scramjet.loadConfig();
   try {
     if (scramjet.route(event)) {

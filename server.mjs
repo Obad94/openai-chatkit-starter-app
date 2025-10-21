@@ -52,9 +52,12 @@ const server = createServer(async (req, res) => {
 
     if (pathname.startsWith(SCRAMJET_PROXY_PREFIX)) {
       const relativePath = pathname.slice(SCRAMJET_PROXY_PREFIX.length);
-      if (await serveScramjetUi(res, relativePath)) {
+      const normalized = relativePath.length === 0 ? "index.html" : relativePath;
+
+      if (await serveScramjetUi(res, normalized)) {
         return;
       }
+
       await serveProxyResource(res, relativePath);
       return;
     }

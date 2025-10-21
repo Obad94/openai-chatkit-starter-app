@@ -222,6 +222,7 @@ export default function App() {
         type="button"
         onClick={() => setIsCollapsed(false)}
         className="pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white sm:bottom-6 sm:right-6"
+        aria-label="Open assistant"
         hidden={!isCollapsed}
       >
         <IconChatBubble />
