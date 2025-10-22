@@ -37,11 +37,11 @@ const RETRY_BASE_DELAY_MS = Number.parseInt(
 // Cloudflare endpoints), TLS handshake can be slow after a reset. Slightly
 // higher defaults reduce spurious UND_ERR_CONNECT_TIMEOUTs.
 const CONNECT_TIMEOUT_MS = Number.parseInt(
-  process.env.CHATKIT_CONNECT_TIMEOUT_MS ?? "15000",
+  process.env.CHATKIT_CONNECT_TIMEOUT_MS ?? "60000",
   10
 );
 const HEADERS_TIMEOUT_MS = Number.parseInt(
-  process.env.CHATKIT_HEADERS_TIMEOUT_MS ?? "45000",
+  process.env.CHATKIT_HEADERS_TIMEOUT_MS ?? "60000",
   10
 );
 const BODY_TIMEOUT_MS = Number.parseInt(
