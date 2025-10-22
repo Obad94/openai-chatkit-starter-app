@@ -42,6 +42,28 @@ Update `.env.local` with the variables that match your setup.
 - `NEXT_PUBLIC_CHATKIT_WORKFLOW_ID` — This is the ID of the workflow you created in [Agent Builder](https://platform.openai.com/agent-builder), which starts with `wf_...`
 - (optional) `CHATKIT_API_BASE` - This is a customizable base URL for the ChatKit API endpoint
 
+#### Optional: connection tuning and retries
+
+If you see occasional "Connect Timeout Error" or transient network errors when restarting the chat, you can tune the built-in fetch timeouts and retry policy via environment variables. Defaults are conservative and work for most networks, but stricter firewalls or Cloudflare edge routing can occasionally be slow to complete TLS handshakes right after a reset.
+
+You can add any of the following to your `.env.local` to increase resilience:
+
+- `CHATKIT_CONNECT_TIMEOUT_MS` (default 15000)
+- `CHATKIT_HEADERS_TIMEOUT_MS` (default 45000)
+- `CHATKIT_BODY_TIMEOUT_MS` (default 120000)
+- `CHATKIT_RETRY_ATTEMPTS` (default 5)
+- `CHATKIT_RETRY_BASE_DELAY_MS` (default 800)
+
+Example values for slower networks:
+
+```
+CHATKIT_CONNECT_TIMEOUT_MS=20000
+CHATKIT_HEADERS_TIMEOUT_MS=60000
+CHATKIT_BODY_TIMEOUT_MS=180000
+CHATKIT_RETRY_ATTEMPTS=6
+CHATKIT_RETRY_BASE_DELAY_MS=1000
+```
+
 > Note: if your workflow is using a model requiring organization verification, such as GPT-5, make sure you verify your organization first. Visit your [organization settings](https://platform.openai.com/settings/organization/general) and click on "Verify Organization".
 
 ### 4. Run the app

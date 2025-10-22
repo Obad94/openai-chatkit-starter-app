@@ -22,25 +22,30 @@ const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 const DISABLE_SESSION_COOKIE =
   process.env.CHATKIT_DISABLE_SESSION_COOKIE === "1" ||
   process.env.CHATKIT_DISABLE_SESSION_COOKIE === "true";
+// Retry policy (overridable via env)
 const RETRY_ATTEMPTS = Number.parseInt(
-  process.env.CHATKIT_RETRY_ATTEMPTS ?? "4",
+  process.env.CHATKIT_RETRY_ATTEMPTS ?? "5",
   10
 );
 const RETRY_BASE_DELAY_MS = Number.parseInt(
-  process.env.CHATKIT_RETRY_BASE_DELAY_MS ?? "500",
+  process.env.CHATKIT_RETRY_BASE_DELAY_MS ?? "800",
   10
 );
 
+// Connection timeouts (overridable via env)
+// Note: On some networks (e.g., behind strict firewalls or on Windows with
+// Cloudflare endpoints), TLS handshake can be slow after a reset. Slightly
+// higher defaults reduce spurious UND_ERR_CONNECT_TIMEOUTs.
 const CONNECT_TIMEOUT_MS = Number.parseInt(
-  process.env.CHATKIT_CONNECT_TIMEOUT_MS ?? "7000",
+  process.env.CHATKIT_CONNECT_TIMEOUT_MS ?? "15000",
   10
 );
 const HEADERS_TIMEOUT_MS = Number.parseInt(
-  process.env.CHATKIT_HEADERS_TIMEOUT_MS ?? "30000",
+  process.env.CHATKIT_HEADERS_TIMEOUT_MS ?? "45000",
   10
 );
 const BODY_TIMEOUT_MS = Number.parseInt(
-  process.env.CHATKIT_BODY_TIMEOUT_MS ?? "60000",
+  process.env.CHATKIT_BODY_TIMEOUT_MS ?? "120000",
   10
 );
 
